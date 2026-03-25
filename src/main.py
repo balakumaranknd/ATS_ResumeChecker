@@ -1,5 +1,11 @@
 from fastapi import FastAPI, UploadFile, File, Form
+from dotenv import load_dotenv
+import os
 from src.services.ats_service import process_resume
+
+
+load_dotenv()
+
 
 app = FastAPI()
 

@@ -5,3 +5,4 @@ pandas
 numpy
 pdfplumber
 python-docx
+openai
