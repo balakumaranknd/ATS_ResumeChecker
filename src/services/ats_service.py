@@ -1,12 +1,15 @@
 import os
 from src.parser.resume_parser import parse_resume
 from src.parser.jd_parser import parse_job_description
-from src.utils.text_cleaner import clean_text
+from src.utils.text_cleaner import clean_text, normalize_text
 from src.matcher.keyword_matcher import compute_similarity
 from src.matcher.scorer import calculate_score, find_missing_keywords, remove_redundant_keywords
 from src.matcher.keyword_extractor import extract_keywords
 from src.matcher.keyword_filter import filter_keywords
 from src.services.llm_analyzer import analyze_with_llm
+
+from src.parser.experience_extractor import extract_experience_lines
+from src.services.experience_rewriter import rewrite_experience
 
 
 UPLOAD_DIR = "temp_uploads"
@@ -30,6 +33,7 @@ async def process_resume(uploaded_file, jd_text):
 
     # Parse
     resume_text = parse_resume(file_path)
+    resume_text = normalize_text(resume_text)
     jd_text = parse_job_description(jd_text)
 
     # Clean
@@ -54,6 +58,23 @@ async def process_resume(uploaded_file, jd_text):
     # Remove redundancy
     missing_keywords = remove_redundant_keywords(missing_keywords)
 
+    # Step: Extract experience bullets
+    bullets = extract_experience_lines(resume_text)
+    bullets = [b.capitalize().strip() for b in bullets]
+
+    # 🚨 If extraction fails → DO NOT rewrite
+    if not bullets or len(bullets) < 2:
+        improved_bullets = []
+    else:
+        skills_to_add = missing_keywords[:3]
+        improved_bullets = rewrite_experience(bullets, skills_to_add)
+
+    # Step: Select top skills to inject
+    skills_to_add = missing_keywords[:3]
+
+    # Step: Rewrite bullets
+    improved_bullets = rewrite_experience(bullets, skills_to_add)
+
     
 
     llm_result = analyze_with_llm(resume_text, jd_text)
@@ -61,6 +82,15 @@ async def process_resume(uploaded_file, jd_text):
     llm_result = analyze_with_llm(resume_text, jd_text)
 
     missing_keywords = remove_contradictions(missing_keywords, llm_result.get("strengths", []))
+
+    if missing_keywords:
+        skills_to_add = missing_keywords[:3]
+        improved_bullets = rewrite_experience(bullets, skills_to_add)
+    else:
+        improved_bullets = bullets  # no rewrite needed
+
+    if len(improved_bullets) != len(bullets):
+        improved_bullets = bullets
 
     if "error" in llm_result:
         llm_result = {
@@ -85,5 +115,6 @@ async def process_resume(uploaded_file, jd_text):
     "baseline_score": score,
     "llm_score": llm_result.get("match_score"),
     "missing_keywords": missing_keywords,
-    "llm_analysis": llm_result
+    "llm_analysis": llm_result,
+    "experience_optimized": improved_bullets
             }
